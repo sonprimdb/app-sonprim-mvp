@@ -1,29 +1,34 @@
 import React from 'react';
-import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { auth } from '../firebase';
-import { Button } from '@mui/material'; // Instala Material-UI después
+import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+
+const provider = new GoogleAuthProvider();
 
 const Login: React.FC = () => {
-  const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
+  const handleLogin = async () => {
     try {
       await signInWithPopup(auth, provider);
-      alert("Login exitoso!");
+      console.log('Logged in');
     } catch (error) {
-      console.error("Error al loguear:", error);
-      alert("Error en Login, revisa la consola.");
+      console.error('Login error:', error);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      console.log('Logged out');
+    } catch (error) {
+      console.error('Logout error:', error);
     }
   };
 
   return (
-    <div style={{ padding: '20px' }}>
-      <h2>Inicia Sesión</h2>
-      <Button variant="contained" color="primary" onClick={signInWithGoogle}>
-        Iniciar con Google
-      </Button>
+    <div>
+      <button onClick={handleLogin}>Login with Google</button>
+      <button onClick={handleLogout}>Logout</button>
     </div>
   );
 };
 
 export default Login;
-export {};
