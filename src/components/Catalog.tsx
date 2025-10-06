@@ -1,103 +1,97 @@
-import React, { useState } from 'react';
-import { wines as catalogWines } from '../data';
-import { Button, Dialog, DialogTitle, DialogContent, DialogActions, TextField } from '@mui/material';
-import { auth } from '../firebase';
+import React, { useState, useEffect } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { Button, Card, CardContent, Typography } from '@mui/material';
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
 
-interface Vintage {
+interface Wine {
+  id: string;
+  name: string;
   year: number;
+  description: string;
   price: number;
   stock: number;
 }
 
-interface Wine {
-  name: string;
-  year: number;
-  quantity?: number;
-}
-
 const Catalog: React.FC = () => {
-  const [openDialog, setOpenDialog] = useState(false);
-  const [selectedWine, setSelectedWine] = useState<{ name: string } | null>(null);
-  const [selectedVintage, setSelectedVintage] = useState<Vintage | null>(null);
-  const [quantity, setQuantity] = useState(1);
-  const [orderNumber, setOrderNumber] = useState<string>('');
+  const [wines, setWines] = useState<Wine[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleBuy = (wine: { name: string }, vintage: Vintage) => {
-    setSelectedWine(wine);
-    setSelectedVintage(vintage);
-    setQuantity(1);
-    setOrderNumber(`ORDER-${Date.now()}`);
-    setOpenDialog(true);
-  };
-
-  const handlePurchase = async () => {
-    if (selectedVintage && quantity <= selectedVintage.stock) {
-      alert(`¡Compra simulada! Order #${orderNumber} for ${quantity} bottles of ${selectedWine?.name} ${selectedVintage.year} for ${quantity * selectedVintage.price}€. (Payment pending)`);
-      const user = auth.currentUser;
-      if (user) {
-        const userId = user.uid;
-        const wineDoc = { name: selectedWine?.name, year: selectedVintage.year, quantity, userId };
-        await setDoc(doc(db, 'purchasedWines', `${userId}_${wineDoc.name}_${wineDoc.year}`), wineDoc);
-        const newOrder = {
-          orderNumber,
-          wines: [wineDoc],
-          status: 'On the Way',
-          date: new Date().toISOString().split('T')[0],
-          userId,
-        };
-        await setDoc(doc(db, 'orders', orderNumber), newOrder);
+  useEffect(() => {
+    const fetchWines = async () => {
+      try {
+        const winesSnap = await getDocs(collection(db, 'wines'));
+        const winesData = winesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Wine));
+        setWines(winesData);
+        setLoading(false);
+      } catch (error) {
+        console.error('Fetch wines error:', error);
+        setLoading(false);
       }
-      setOpenDialog(false);
-    } else {
-      alert('Quantity exceeds available stock.');
+    };
+    fetchWines();
+  }, []);
+
+  const handlePurchase = async (wine: Wine) => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        alert('Please login to purchase');
+        return;
+      }
+      const order = {
+        orderNumber: `ORDER-${Date.now()}`,
+        wines: [{ name: wine.name, year: wine.year, quantity: 1 }],
+        status: 'On the Way' as const,
+        date: new Date().toISOString().split('T')[0],
+        userId: user.uid,
+      };
+      await setDoc(doc(db, 'orders', order.orderNumber), order);
+      await setDoc(doc(db, 'purchasedWines', `${user.uid}_${wine.name}_${wine.year}`), {
+        name: wine.name,
+        year: wine.year,
+        quantity: 1,
+        userId: user.uid,
+      });
+      alert('Purchase successful! Check your orders.');
+    } catch (error) {
+      console.error('Purchase error:', error);
+      alert('Purchase failed.');
     }
   };
 
+  if (loading) {
+    return <div>Loading catalog...</div>;
+  }
+
   return (
     <div style={{ padding: '20px' }}>
-      <h2>Catalog</h2>
-      {catalogWines.map((wine) => (
-        <div key={wine.id} style={{ marginBottom: '15px', border: '1px solid #ccc', padding: '10px' }}>
-          <h3>{wine.name} ({wine.type})</h3>
-          <p>{wine.description}</p>
-          <h4>Available Vintages:</h4>
-          <ul>
-            {wine.vintages.map((vintage, index) => (
-              <li key={index}>
-                Year: {vintage.year}, Price: {vintage.price}€, Stock: {vintage.stock}
-                <Button variant="outlined" size="small" onClick={() => handleBuy({ name: wine.name }, vintage)} style={{ marginLeft: '10px' }}>
-                  Buy
+      <h2>Wine Catalog</h2>
+      {wines.length > 0 ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+          {wines.map(wine => (
+            <Card key={wine.id} style={{ width: '200px' }}>
+              <CardContent>
+                <Typography variant="h6">{wine.name} {wine.year}</Typography>
+                <Typography>{wine.description}</Typography>
+                <Typography>Price: €{wine.price}</Typography>
+                <Typography>Stock: {wine.stock}</Typography>
+                <Button
+                  variant="contained"
+                  onClick={() => handlePurchase(wine)}
+                  disabled={wine.stock === 0}
+                >
+                  Purchase
                 </Button>
-              </li>
-            ))}
-          </ul>
+              </CardContent>
+            </Card>
+          ))}
         </div>
-      ))}
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)}>
-        <DialogTitle>Buy {selectedWine?.name} {selectedVintage?.year}</DialogTitle>
-        <DialogContent>
-          <TextField
-            label="Quantity"
-            type="number"
-            value={quantity}
-            onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-            fullWidth
-            inputProps={{ min: 1, max: selectedVintage?.stock || 1 }}
-          />
-          <p>Available stock: {selectedVintage?.stock}</p>
-          <p>Total: {quantity * (selectedVintage?.price || 0)}€</p>
-          <p>Order #: {orderNumber}</p>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-          <Button onClick={handlePurchase} variant="contained">Purchase</Button>
-        </DialogActions>
-      </Dialog>
+      ) : (
+        <p>No wines available.</p>
+      )}
     </div>
   );
 };
 
 export default Catalog;
-export {};

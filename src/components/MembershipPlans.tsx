@@ -1,85 +1,80 @@
 import React, { useState, useEffect } from 'react';
-import { memberships } from '../data';
-import { Button } from '@mui/material';
-import { auth } from '../firebase';
-import { onAuthStateChanged, updateProfile } from 'firebase/auth';
+import { collection, getDocs, query, where, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { Button, Card, CardContent, Typography } from '@mui/material';
+
+interface Plan {
+  id: string;
+  name: string;
+  benefits: string;
+  price: number;
+}
 
 const MembershipPlans: React.FC = () => {
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [userPlan, setUserPlan] = useState<string>('None');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const savedPlan = currentUser.displayName?.split('|')[1];
-        setSelectedPlan(savedPlan || null);
+    const fetchData = async () => {
+      try {
+        const plansSnap = await getDocs(collection(db, 'subscriptions'));
+        setPlans(plansSnap.docs.map(d => ({ id: d.id, ...d.data() } as Plan)));
+
+        const user = auth.currentUser;
+        if (user) {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          setUserPlan(userDoc.data()?.plan || 'None');
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Fetch error:', error);
+        setLoading(false);
       }
-    });
-    return () => unsubscribe();
+    };
+    fetchData();
   }, []);
 
-  const handleSubscribe = (planName: string) => {
-    if (user) {
-      if (selectedPlan) {
-        alert("Debes cancelar tu plan actual antes de suscribirte a otro.");
-        return;
+  const handleSubscribe = async (planName: string) => {
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await updateDoc(doc(db, 'users', user.uid), { plan: planName });
+        setUserPlan(planName);
       }
-      updateProfile(user, { displayName: `${user.email}|${planName}` })
-        .then(() => {
-          setSelectedPlan(planName);
-          alert(`¡Te has suscrito a ${planName}! (Funcionalidad de pago pendiente)`);
-        })
-        .catch((error) => {
-          console.error("Error al actualizar perfil:", error);
-          alert("Error al suscribirse, revisa la consola.");
-        });
+    } catch (error) {
+      console.error('Subscribe error:', error);
     }
   };
 
-  const handleCancel = () => {
-    if (user && selectedPlan) {
-      updateProfile(user, { displayName: user.email })
-        .then(() => {
-          setSelectedPlan(null);
-          alert("¡Suscripción cancelada!");
-        })
-        .catch((error) => {
-          console.error("Error al cancelar suscripción:", error);
-          alert("Error al cancelar, revisa la consola.");
-        });
-    }
-  };
+  if (loading) {
+    return <div>Loading plans...</div>;
+  }
 
   return (
     <div style={{ padding: '20px' }}>
-      <h2>Planes de Membresía</h2>
-      {memberships.map((membership) => (
-        <div key={membership.id} style={{ marginBottom: '15px', border: '1px solid #ccc', padding: '10px' }}>
-          <h3>{membership.name}</h3>
-          <p>{membership.benefits}</p>
-          <p>Precio: {membership.price}€ / {membership.duration}</p>
-          <Button
-            variant="contained"
-            color={selectedPlan === membership.name ? 'success' : 'primary'}
-            onClick={() => handleSubscribe(membership.name)}
-            disabled={!user || !!selectedPlan} // Deshabilita si no está logueado o ya tiene plan
-          >
-            {selectedPlan === membership.name ? 'Suscrito' : 'Suscribirse'}
-          </Button>
-        </div>
-      ))}
-      {selectedPlan && (
-        <div style={{ marginTop: '20px' }}>
-          <p>Plan seleccionado: {selectedPlan}</p>
-          <Button variant="outlined" color="error" onClick={handleCancel}>
-            Cancelar Suscripción
-          </Button>
-        </div>
-      )}
+      <h2>Subscription Plans</h2>
+      <p>Current Plan: {userPlan}</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+        {plans.map(plan => (
+          <Card key={plan.id} style={{ width: '200px' }}>
+            <CardContent>
+              <Typography variant="h6">{plan.name}</Typography>
+              <Typography>{plan.benefits}</Typography>
+              <Typography>Price: €{plan.price}/year</Typography>
+              <Button
+                variant="contained"
+                onClick={() => handleSubscribe(plan.name)}
+                disabled={userPlan === plan.name}
+              >
+                {userPlan === plan.name ? 'Subscribed' : 'Subscribe'}
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 };
 
 export default MembershipPlans;
-export {};
