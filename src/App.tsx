@@ -38,7 +38,8 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="App">
-        <h1>Bienvenido a Son Prim</h1>
+        <h1>SON PRIM fam'
+        </h1>
         {!user && <Login />}
         {user && isAdmin && <AdminPanel />}
         {user && !isAdmin && (

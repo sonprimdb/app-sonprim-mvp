@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, setDoc, getDoc, query, where } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Button, Card, CardContent, Typography } from '@mui/material';
-import { doc, setDoc } from 'firebase/firestore';
 
 interface Wine {
   id: string;
@@ -13,30 +12,63 @@ interface Wine {
   stock: number;
 }
 
+interface Plan {
+  name: string;
+  discount: number; // e.g., 0.10 for 10%
+}
+
 const Catalog: React.FC = () => {
   const [wines, setWines] = useState<Wine[]>([]);
+  const [userPlan, setUserPlan] = useState<string>('None');
+  const [discount, setDiscount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchWines = async () => {
+    const fetchData = async () => {
       try {
+        // Fetch wines
         const winesSnap = await getDocs(collection(db, 'wines'));
         const winesData = winesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Wine));
         setWines(winesData);
+
+        // Fetch user plan and discount
+        const user = auth.currentUser;
+        if (user) {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          const planName = userDoc.data()?.plan || 'None';
+          setUserPlan(planName);
+
+          if (planName !== 'None') {
+            const subsQuery = query(collection(db, 'subscriptions'), where('name', '==', planName));
+            const subsSnap = await getDocs(subsQuery);
+            if (!subsSnap.empty) {
+              const planData = subsSnap.docs[0].data() as Plan;
+              setDiscount(planData.discount || 0); // Assume 'discount' field added to subscriptions (e.g., 0.1 for Friends)
+            }
+          }
+        }
         setLoading(false);
       } catch (error) {
-        console.error('Fetch wines error:', error);
+        console.error('Fetch error:', error);
         setLoading(false);
       }
     };
-    fetchWines();
+    fetchData();
   }, []);
+
+  const getDiscountedPrice = (price: number) => {
+    return price * (1 - discount);
+  };
 
   const handlePurchase = async (wine: Wine) => {
     try {
       const user = auth.currentUser;
       if (!user) {
         alert('Please login to purchase');
+        return;
+      }
+      if (wine.stock <= 0) {
+        alert('Out of stock');
         return;
       }
       const order = {
@@ -53,6 +85,9 @@ const Catalog: React.FC = () => {
         quantity: 1,
         userId: user.uid,
       });
+      // Reduce stock
+      await updateDoc(doc(db, 'wines', wine.id), { stock: wine.stock - 1 });
+      setWines(wines.map(w => w.id === wine.id ? { ...w, stock: w.stock - 1 } : w));
       alert('Purchase successful! Check your orders.');
     } catch (error) {
       console.error('Purchase error:', error);
@@ -67,6 +102,7 @@ const Catalog: React.FC = () => {
   return (
     <div style={{ padding: '20px' }}>
       <h2>Wine Catalog</h2>
+      {discount > 0 && <p>Your {userPlan} discount: {discount * 100}% off!</p>}
       {wines.length > 0 ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
           {wines.map(wine => (
@@ -74,7 +110,10 @@ const Catalog: React.FC = () => {
               <CardContent>
                 <Typography variant="h6">{wine.name} {wine.year}</Typography>
                 <Typography>{wine.description}</Typography>
-                <Typography>Price: €{wine.price}</Typography>
+                <Typography>
+                  Price: €{getDiscountedPrice(wine.price).toFixed(2)} 
+                  {discount > 0 && <span> (Original: €{wine.price})</span>}
+                </Typography>
                 <Typography>Stock: {wine.stock}</Typography>
                 <Button
                   variant="contained"
@@ -95,3 +134,4 @@ const Catalog: React.FC = () => {
 };
 
 export default Catalog;
+export {};

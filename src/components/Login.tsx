@@ -1,17 +1,29 @@
 import React from 'react';
 import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signOut, OAuthProvider } from 'firebase/auth';
 
-const provider = new GoogleAuthProvider();
-provider.setCustomParameters({ prompt: 'select_account' }); // Force account selection
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+const appleProvider = new OAuthProvider('apple.com');
+appleProvider.setCustomParameters({ prompt: 'select_account' });
 
 const Login: React.FC = () => {
-  const handleLogin = async () => {
+  const handleGoogleLogin = async () => {
     try {
-      await signInWithPopup(auth, provider);
-      console.log('Logged in');
+      await signInWithPopup(auth, googleProvider);
+      console.log('Logged in with Google');
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('Google login error:', error);
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    try {
+      await signInWithPopup(auth, appleProvider);
+      console.log('Logged in with Apple');
+    } catch (error) {
+      console.error('Apple login error:', error);
     }
   };
 
@@ -26,7 +38,8 @@ const Login: React.FC = () => {
 
   return (
     <div>
-      <button onClick={handleLogin}>Login with Google</button>
+      <button onClick={handleGoogleLogin}>Login with Google</button>
+      <button onClick={handleAppleLogin}>Login with Apple</button>
       <button onClick={handleLogout}>Logout</button>
     </div>
   );

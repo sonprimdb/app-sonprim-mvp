@@ -1,119 +1,189 @@
 import React, { useState, useEffect } from 'react';
-import { Button, TextField, List, ListItem, ListItemText, IconButton } from '@mui/material';
-import { Edit as EditIcon } from '@mui/icons-material';
-import { wines as catalogWines } from '../data'; // Simulated data, replace with Firestore
-import { auth } from '../firebase';
+import { Button, TextField, List, ListItem, ListItemText, IconButton, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { collection, getDocs, doc, setDoc, updateDoc, deleteDoc, query, where } from 'firebase/firestore';
+import { db, auth } from '../firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { updateDoc, doc } from 'firebase/firestore';
-import { db } from '../firebase'; // For automating emails, use Firebase Functions later
-
-interface Vintage {
-  year: number;
-  price: number;
-  stock: number;
-}
+import Papa from 'papaparse'; // Install: npm install papaparse
 
 interface Wine {
-  id: number;
+  id: string;
   name: string;
-  type: string;
+  year: number;
   description: string;
-  vintages: Vintage[];
+  price: number;
+  stock: number;
+  quantity?: number;
+}
+
+interface Order {
+  orderNumber: string;
+  wines: Wine[];
+  status: 'On the Way' | 'Pick Up' | 'Completed';
+  date: string;
+  userId: string;
+}
+
+interface User {
+  id: string;
+  email: string;
+  plan: string;
+  joined: string;
 }
 
 const AdminPanel: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [stock, setStock] = useState<Wine[]>(catalogWines);
+  const [wines, setWines] = useState<Wine[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [openWineDialog, setOpenWineDialog] = useState(false);
+  const [openOrderDialog, setOpenOrderDialog] = useState(false);
   const [selectedWine, setSelectedWine] = useState<Wine | null>(null);
-  const [selectedVintage, setSelectedVintage] = useState<Vintage | null>(null);
-  const [newStock, setNewStock] = useState(0);
-  const [orders, setOrders] = useState<any[]>([]); // Simulated orders
-  const [subscriptions, setSubscriptions] = useState<any[]>([]); // Simulated subscriptions
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [newWine, setNewWine] = useState<Wine>({ id: '', name: '', year: 0, description: '', price: 0, stock: 0 });
+  const [newStatus, setNewStatus] = useState<'On the Way' | 'Pick Up' | 'Completed'>('On the Way');
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       setLoading(false);
-      setIsAdmin(!!currentUser && currentUser.email === 'admin@sonprim.com');
-      if (!!currentUser && currentUser.email === 'admin@sonprim.com') {
-        // Fetch orders and subscriptions from Firestore
-        // Example: getDocs(query(collection(db, 'orders')));
-        const sampleOrders = [{ orderNumber: 'ORDER-123', user: 'user@email.com', status: 'On the Way' }];
-        const sampleSubscriptions = [{ user: 'user@email.com', plan: 'Premium' }];
-        setOrders(sampleOrders);
-        setSubscriptions(sampleSubscriptions);
+      if (currentUser && currentUser.email === 'admin@sonprim.com') {
+        try {
+          const winesSnap = await getDocs(collection(db, 'wines'));
+          setWines(winesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Wine)));
+
+          const ordersSnap = await getDocs(collection(db, 'orders'));
+          setOrders(ordersSnap.docs.map(d => ({ orderNumber: d.id, ...d.data() } as Order)));
+
+          const usersSnap = await getDocs(collection(db, 'users'));
+          setUsers(usersSnap.docs.map(d => ({ id: d.id, ...d.data() } as User)));
+        } catch (error) {
+          console.error('Fetch error:', error);
+        }
       }
     });
     return () => unsubscribe();
   }, []);
 
-  const handleUpdateStock = async () => {
-    if (selectedWine && selectedVintage && newStock >= 0) {
-      // Update in Firestore
-      await updateDoc(doc(db, 'wines', selectedWine.id.toString()), { vintages: stock.find(w => w.id === selectedWine.id)?.vintages });
-      setStock(stock.map(w => w.id === selectedWine.id ? { ...w, vintages: w.vintages.map(v => v.year === selectedVintage.year ? { ...v, stock: newStock } : v) } : w));
-      alert('Stock updated and email sent to subscribers (simulated).');
+  const handleAddEditWine = async () => {
+    try {
+      if (selectedWine) {
+        const { id, ...wineData } = newWine;
+        await updateDoc(doc(db, 'wines', selectedWine.id), wineData);
+        setWines(wines.map(w => w.id === selectedWine.id ? { ...newWine, id: selectedWine.id } : w));
+      } else {
+        const newRef = doc(collection(db, 'wines'));
+        await setDoc(newRef, newWine);
+        setWines([...wines, { ...newWine, id: newRef.id }]);
+      }
+      setOpenWineDialog(false);
+      setSelectedWine(null);
+      setNewWine({ id: '', name: '', year: 0, description: '', price: 0, stock: 0 });
+    } catch (error) {
+      console.error('Wine update error:', error);
     }
   };
 
-  const handleManageOrder = (order: any) => {
-    alert(`Order #${order.orderNumber} updated (simulated email to client).`);
-  };
-
-  const handleManageSubscription = (sub: any) => {
-    alert(`Subscription for ${sub.user} updated (simulated email to client).`);
-  };
-
-    if (loading || !isAdmin) {
-      return <p>Access denied. Admin only.</p>;
+  const handleDeleteWine = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'wines', id));
+      setWines(wines.filter(w => w.id !== id));
+    } catch (error) {
+      console.error('Delete error:', error);
     }
+  };
+
+  const handleUpdateOrder = async () => {
+    try {
+      if (selectedOrder) {
+        await updateDoc(doc(db, 'orders', selectedOrder.orderNumber), { status: newStatus });
+        setOrders(orders.map(o => o.orderNumber === selectedOrder.orderNumber ? { ...o, status: newStatus } : o));
+        setOpenOrderDialog(false);
+        setSelectedOrder(null);
+      }
+    } catch (error) {
+      console.error('Order update error:', error);
+    }
+  };
+
+  const exportReport = (data: any[], filename: string) => {
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${filename}.csv`;
+    link.click();
+  };
+
+  if (loading || !user || user.email !== 'admin@sonprim.com') {
+    return <div>Access denied. Admin only.</div>;
+  }
 
   return (
     <div style={{ padding: '20px' }}>
       <h2>Admin Panel</h2>
-      <h3>Update Stock</h3>
+      <Button variant="contained" color="secondary" onClick={() => signOut(auth)}>Sign Out</Button>
+      <h3>Manage Wines</h3>
+      <Button onClick={() => setOpenWineDialog(true)}>Add New Wine</Button>
       <List>
-        {stock.map((wine) => (
+        {wines.map(wine => (
           <ListItem key={wine.id}>
-            <ListItemText primary={wine.name} />
-            {wine.vintages.map((vintage, index) => (
-              <div key={index}>
-                Year: {vintage.year}, Stock: {vintage.stock}
-                <IconButton onClick={() => { setSelectedWine(wine); setSelectedVintage(vintage); setNewStock(vintage.stock); }}><EditIcon /></IconButton>
-              </div>
-            ))}
+            <ListItemText primary={`${wine.name} ${wine.year} - €${wine.price} (Stock: ${wine.stock})`} secondary={wine.description} />
+            <IconButton onClick={() => { setSelectedWine(wine); setNewWine(wine); setOpenWineDialog(true); }}><EditIcon /></IconButton>
+            <IconButton onClick={() => handleDeleteWine(wine.id)}><DeleteIcon /></IconButton>
           </ListItem>
         ))}
       </List>
-      <TextField
-        label="New Stock"
-        type="number"
-        value={newStock}
-        onChange={(e) => setNewStock(parseInt(e.target.value) || 0)}
-        style={{ marginBottom: '10px' }}
-      />
-      <Button onClick={handleUpdateStock} variant="contained">Update Stock</Button>
       <h3>Manage Orders</h3>
       <List>
-        {orders.map((order, index) => (
-          <ListItem key={index}>
-            <ListItemText primary={`Order #${order.orderNumber} - User: ${order.user} - Status: ${order.status}`} />
-            <Button onClick={() => handleManageOrder(order)}>Update</Button>
+        {orders.map(order => (
+          <ListItem key={order.orderNumber}>
+            <ListItemText primary={`Order #${order.orderNumber} - Status: ${order.status}`} secondary={order.wines.map(w => `${w.name} x${w.quantity || 1}`).join(', ')} />
+            <IconButton onClick={() => { setSelectedOrder(order); setNewStatus(order.status); setOpenOrderDialog(true); }}><EditIcon /></IconButton>
           </ListItem>
         ))}
       </List>
-      <h3>Manage Subscriptions</h3>
+      <Button onClick={() => exportReport(orders.map(o => ({ ...o, wines: o.wines.map(w => w.name).join(',') })), 'orders_report')}>Export Orders CSV</Button>
+      <h3>Client Subscriptions & Activity</h3>
       <List>
-        {subscriptions.map((sub, index) => (
-          <ListItem key={index}>
-            <ListItemText primary={`User: ${sub.user} - Plan: ${sub.plan}`} />
-            <Button onClick={() => handleManageSubscription(sub)}>Update</Button>
+        {users.map(u => (
+          <ListItem key={u.id}>
+            <ListItemText primary={`${u.email} - Plan: ${u.plan}`} secondary={`Joined: ${u.joined}`} />
           </ListItem>
         ))}
       </List>
-      <Button onClick={() => signOut(auth)}>Sign Out</Button>
+      <Button onClick={() => exportReport(users, 'clients_report')}>Export Clients CSV</Button>
+
+      <Dialog open={openWineDialog} onClose={() => setOpenWineDialog(false)}>
+        <DialogTitle>{selectedWine ? 'Edit Wine' : 'Add Wine'}</DialogTitle>
+        <DialogContent>
+          <TextField label="Name" value={newWine.name} onChange={e => setNewWine({ ...newWine, name: e.target.value })} fullWidth />
+          <TextField label="Year" type="number" value={newWine.year} onChange={e => setNewWine({ ...newWine, year: parseInt(e.target.value) || 0 })} fullWidth />
+          <TextField label="Description" value={newWine.description} onChange={e => setNewWine({ ...newWine, description: e.target.value })} fullWidth />
+          <TextField label="Price" type="number" value={newWine.price} onChange={e => setNewWine({ ...newWine, price: parseFloat(e.target.value) || 0 })} fullWidth />
+          <TextField label="Stock" type="number" value={newWine.stock} onChange={e => setNewWine({ ...newWine, stock: parseInt(e.target.value) || 0 })} fullWidth />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenWineDialog(false)}>Cancel</Button>
+          <Button onClick={handleAddEditWine} variant="contained">Save</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={openOrderDialog} onClose={() => setOpenOrderDialog(false)}>
+        <DialogTitle>Update Order Status</DialogTitle>
+        <DialogContent>
+          <TextField select label="Status" value={newStatus} onChange={e => setNewStatus(e.target.value as any)} fullWidth SelectProps={{ native: true }}>
+            <option value="On the Way">On the Way</option>
+            <option value="Pick Up">Pick Up</option>
+            <option value="Completed">Completed</option>
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpenOrderDialog(false)}>Cancel</Button>
+          <Button onClick={handleUpdateOrder} variant="contained">Update</Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 };
