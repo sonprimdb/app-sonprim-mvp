@@ -48,6 +48,7 @@
     ]
   },
   "devDependencies": {
-    "@types/firebase": "^2.4.32"
+    "@types/firebase": "^2.4.32",
+    "@types/papaparse": "^5.3.16"
   }
 }
