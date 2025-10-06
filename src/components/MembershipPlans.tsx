@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { collection, getDocs, query, where, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Button, Card, CardContent, Typography } from '@mui/material';
+import { getFunctions, httpsCallable } from 'firebase/functions'; // Add this import
 
 interface Plan {
   id: string;
   name: string;
   benefits: string;
   price: number;
+  stripePriceId: string; // Add to subscriptions in Firestore
 }
 
 const MembershipPlans: React.FC = () => {
@@ -35,13 +37,16 @@ const MembershipPlans: React.FC = () => {
     fetchData();
   }, []);
 
-  const handleSubscribe = async (planName: string) => {
+  const handleSubscribe = async (plan: Plan) => {
     try {
       const user = auth.currentUser;
-      if (user) {
-        await updateDoc(doc(db, 'users', user.uid), { plan: planName });
-        setUserPlan(planName);
-      }
+      if (!user) return;
+      const functions = getFunctions();
+      const createCheckoutSession = httpsCallable(functions, 'createCheckoutSession');
+      const result = await createCheckoutSession({ planId: plan.stripePriceId });
+      const data = result.data as { url: string };
+      const url = data.url;
+      window.location.href = url; // Redirect using URL
     } catch (error) {
       console.error('Subscribe error:', error);
     }
@@ -64,7 +69,7 @@ const MembershipPlans: React.FC = () => {
               <Typography>Price: €{plan.price}/year</Typography>
               <Button
                 variant="contained"
-                onClick={() => handleSubscribe(plan.name)}
+                onClick={() => handleSubscribe(plan)}
                 disabled={userPlan === plan.name}
               >
                 {userPlan === plan.name ? 'Subscribed' : 'Subscribe'}
@@ -78,3 +83,4 @@ const MembershipPlans: React.FC = () => {
 };
 
 export default MembershipPlans;
+export {};

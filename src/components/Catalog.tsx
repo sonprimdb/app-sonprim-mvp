@@ -14,10 +14,10 @@ interface Wine {
 
 interface Plan {
   name: string;
-  discount: number; // e.g., 0.10 for 10%
+  discount: number;
 }
 
-const Catalog: React.FC = () => {
+const Catalog = () => {
   const [wines, setWines] = useState<Wine[]>([]);
   const [userPlan, setUserPlan] = useState<string>('None');
   const [discount, setDiscount] = useState<number>(0);
@@ -26,12 +26,10 @@ const Catalog: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Fetch wines
         const winesSnap = await getDocs(collection(db, 'wines'));
         const winesData = winesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Wine));
         setWines(winesData);
 
-        // Fetch user plan and discount
         const user = auth.currentUser;
         if (user) {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -43,7 +41,7 @@ const Catalog: React.FC = () => {
             const subsSnap = await getDocs(subsQuery);
             if (!subsSnap.empty) {
               const planData = subsSnap.docs[0].data() as Plan;
-              setDiscount(planData.discount || 0); // Assume 'discount' field added to subscriptions (e.g., 0.1 for Friends)
+              setDiscount(planData.discount || 0);
             }
           }
         }
@@ -85,7 +83,6 @@ const Catalog: React.FC = () => {
         quantity: 1,
         userId: user.uid,
       });
-      // Reduce stock
       await updateDoc(doc(db, 'wines', wine.id), { stock: wine.stock - 1 });
       setWines(wines.map(w => w.id === wine.id ? { ...w, stock: w.stock - 1 } : w));
       alert('Purchase successful! Check your orders.');
